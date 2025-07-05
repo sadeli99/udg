@@ -2,6 +2,7 @@ const fetch = require('node-fetch');
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).end('Method Not Allowed');
+
   const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO } = process.env;
   const { path, newItem } = req.body;
 
@@ -10,7 +11,7 @@ module.exports = async (req, res) => {
   const apiURL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`;
 
   try {
-    // Get current content
+    // Get current content from GitHub
     const ghRes = await fetch(apiURL, {
       headers: {
         Authorization: `Bearer ${GITHUB_TOKEN}`,
@@ -18,12 +19,24 @@ module.exports = async (req, res) => {
       }
     });
     const data = await ghRes.json();
-    const json = JSON.parse(Buffer.from(data.content, 'base64').toString());
 
-    // Add new item
+    let json = {};
+    if (data.content) {
+      try {
+        json = JSON.parse(Buffer.from(data.content, 'base64').toString());
+      } catch (parseErr) {
+        console.error("Failed to parse JSON:", parseErr);
+        return res.status(500).json({ error: "Failed to parse existing JSON" });
+      }
+    }
+
+    // Add new item as object (not string)
     json[newItem.key] = newItem;
 
-    // Update file on GitHub
+    // Encode updated JSON
+    const updatedContent = Buffer.from(JSON.stringify(json, null, 2)).toString('base64');
+
+    // Push update to GitHub
     const updateRes = await fetch(apiURL, {
       method: 'PUT',
       headers: {
@@ -33,18 +46,20 @@ module.exports = async (req, res) => {
       },
       body: JSON.stringify({
         message: `Add key ${newItem.key}`,
-        content: Buffer.from(JSON.stringify(json, null, 2)).toString('base64'),
+        content: updatedContent,
         sha: data.sha
       })
     });
 
-    if (updateRes.ok) res.status(200).json({ message: 'Success add' });
-    else {
+    if (updateRes.ok) {
+      res.status(200).json({ message: 'Success add' });
+    } else {
       const err = await updateRes.json();
+      console.error("Failed update:", err);
       res.status(500).json({ error: 'Failed to add', detail: err });
     }
   } catch (err) {
-    console.error(err);
+    console.error("Unexpected error:", err);
     res.status(500).json({ error: 'Error occurred' });
   }
 };
