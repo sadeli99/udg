@@ -1,35 +1,26 @@
 const fetch = require('node-fetch');
 
 module.exports = async (req, res) => {
+  if (req.method !== 'POST') return res.status(405).end('Method Not Allowed');
   const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO } = process.env;
-  const path = 'db.json';
+  const { path, newItem } = req.body;
+  if (!path || !newItem) return res.status(400).json({ error: "Missing path or newItem" });
+
   const apiURL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`;
 
-  if (req.method !== 'POST') {
-    res.status(405).end('Method Not Allowed');
-    return;
-  }
-
-  const { newItem } = req.body;
-
   try {
-    // ambil file dulu
-    const ghRes = await fetch(apiURL, {
-      headers: { Authorization: `Bearer ${GITHUB_TOKEN}` }
-    });
+    const ghRes = await fetch(apiURL, { headers: { Authorization: `Bearer ${GITHUB_TOKEN}` } });
     const data = await ghRes.json();
-    const content = Buffer.from(data.content, 'base64').toString();
-    const json = JSON.parse(content);
+    const json = JSON.parse(Buffer.from(data.content, 'base64').toString());
 
-    // tambahkan item baru
     json[newItem.key] = newItem;
 
-    // update file
     const updateRes = await fetch(apiURL, {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${GITHUB_TOKEN}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Accept': 'application/vnd.github+json'
       },
       body: JSON.stringify({
         message: `Add key ${newItem.key}`,
@@ -38,14 +29,13 @@ module.exports = async (req, res) => {
       })
     });
 
-    if (updateRes.ok) {
-      res.status(200).json({ message: 'Success add' });
-    } else {
+    if (updateRes.ok) res.status(200).json({ message: 'Success add' });
+    else {
       const err = await updateRes.json();
       res.status(500).json({ error: 'Failed to add', detail: err });
     }
-  } catch (e) {
-    console.error(e);
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Error occurred' });
   }
 };
