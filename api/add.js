@@ -6,12 +6,14 @@ module.exports = async (req, res) => {
   const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO } = process.env;
   const { path, newItem } = req.body;
 
-  if (!path || !newItem) return res.status(400).json({ error: "Missing path or newItem" });
+  if (!path || !newItem) {
+    return res.status(400).json({ error: "Missing path or newItem" });
+  }
 
   const apiURL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`;
 
   try {
-    // Get current content from GitHub
+    // Ambil isi file json sekarang
     const ghRes = await fetch(apiURL, {
       headers: {
         Authorization: `Bearer ${GITHUB_TOKEN}`,
@@ -25,18 +27,18 @@ module.exports = async (req, res) => {
       try {
         json = JSON.parse(Buffer.from(data.content, 'base64').toString());
       } catch (parseErr) {
-        console.error("Failed to parse JSON:", parseErr);
+        console.error("Gagal parse JSON:", parseErr);
         return res.status(500).json({ error: "Failed to parse existing JSON" });
       }
     }
 
-    // Add new item as object (not string)
+    // Tambahkan item baru (langsung object, jangan di-stringify)
     json[newItem.key] = newItem;
 
-    // Encode updated JSON
+    // Encode JSON jadi base64 (Buffer)
     const updatedContent = Buffer.from(JSON.stringify(json, null, 2)).toString('base64');
 
-    // Push update to GitHub
+    // Kirim PUT request ke GitHub untuk update file
     const updateRes = await fetch(apiURL, {
       method: 'PUT',
       headers: {
@@ -55,7 +57,7 @@ module.exports = async (req, res) => {
       res.status(200).json({ message: 'Success add' });
     } else {
       const err = await updateRes.json();
-      console.error("Failed update:", err);
+      console.error("Failed to update GitHub:", err);
       res.status(500).json({ error: 'Failed to add', detail: err });
     }
   } catch (err) {
