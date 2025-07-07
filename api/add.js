@@ -18,10 +18,14 @@ module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).end('Method Not Allowed');
 
   const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO } = process.env;
-  const { path, title, message } = req.body;
+  const { path, newItem } = req.body;
 
-  if (!path || !title || !message) {
-    return res.status(400).json({ error: "Missing path, title or message" });
+  if (!path || !newItem) {
+    return res.status(400).json({ error: "Missing path or newItem" });
+  }
+
+  if (!newItem.title || !newItem.message) {
+    return res.status(400).json({ error: "Missing title or message in newItem" });
   }
 
   const apiURL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`;
@@ -29,7 +33,7 @@ module.exports = async (req, res) => {
   const waktu = new Date().toLocaleString();
 
   try {
-    // ambil isi file json
+    // ambil file JSON
     const ghRes = await fetch(apiURL, {
       headers: {
         Authorization: `Bearer ${GITHUB_TOKEN}`,
@@ -44,6 +48,7 @@ module.exports = async (req, res) => {
     }
 
     const data = await ghRes.json();
+
     let json = {};
     try {
       json = JSON.parse(decode(data.content));
@@ -52,12 +57,17 @@ module.exports = async (req, res) => {
       json = {};
     }
 
-    // tambah data baru
-    json[key] = { androidId: waktu, title, message, key };
+    // Tambah data baru
+    json[key] = { 
+      androidId: waktu, 
+      title: newItem.title, 
+      message: newItem.message, 
+      key 
+    };
 
     const updatedContent = encode(JSON.stringify(json, null, 2));
 
-    // update ke github
+    // Update file ke GitHub
     const updateRes = await fetch(apiURL, {
       method: 'PUT',
       headers: {
