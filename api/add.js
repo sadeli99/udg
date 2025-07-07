@@ -1,44 +1,63 @@
 const fetch = require('node-fetch');
 
+// fungsi base64 encode/decode
+function encode(s) { return Buffer.from(unescape(encodeURIComponent(s))).toString('base64'); }
+function decode(s) { return decodeURIComponent(escape(Buffer.from(s, 'base64').toString())); }
+
+// buat key random
+function pushGetKey(length=16) {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let key = "_github-";
+  for (let i = 0; i < length; i++) {
+    key += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return key;
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).end('Method Not Allowed');
 
   const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO } = process.env;
-  const { path, newItem } = req.body;
+  const { path, title, message } = req.body;
 
-  if (!path || !newItem) {
-    return res.status(400).json({ error: "Missing path or newItem" });
+  if (!path || !title || !message) {
+    return res.status(400).json({ error: "Missing path, title or message" });
   }
 
   const apiURL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`;
+  const key = pushGetKey();
+  const waktu = new Date().toLocaleString();
 
   try {
-    // Ambil isi file json sekarang
+    // ambil isi file json
     const ghRes = await fetch(apiURL, {
       headers: {
         Authorization: `Bearer ${GITHUB_TOKEN}`,
         Accept: "application/vnd.github+json"
       }
     });
-    const data = await ghRes.json();
 
-    let json = {};
-    if (data.content) {
-      try {
-        json = JSON.parse(Buffer.from(data.content, 'base64').toString());
-      } catch (parseErr) {
-        console.error("Gagal parse JSON:", parseErr);
-        return res.status(500).json({ error: "Failed to parse existing JSON" });
-      }
+    if (!ghRes.ok) {
+      const err = await ghRes.text();
+      console.error("Failed to fetch existing file:", err);
+      return res.status(500).json({ error: "Failed to fetch existing file", detail: err });
     }
 
-    // Tambahkan item baru (langsung object, jangan di-stringify)
-    json[newItem.key] = newItem;
+    const data = await ghRes.json();
+    let json = {};
+    try {
+      json = JSON.parse(decode(data.content));
+    } catch (parseErr) {
+      console.warn("File kosong/rusak, pakai default {}");
+      json = {};
+    }
 
-    // Encode JSON jadi base64 (Buffer)
-    const updatedContent = Buffer.from(JSON.stringify(json, null, 2)).toString('base64');
+    // tambah data baru
+    json[key] = { androidId: waktu, title, message, key };
 
-    // Kirim PUT request ke GitHub untuk update file
+    const updatedContent = encode(JSON.stringify(json, null, 2));
+
+    // update ke github
     const updateRes = await fetch(apiURL, {
       method: 'PUT',
       headers: {
@@ -47,21 +66,22 @@ module.exports = async (req, res) => {
         Accept: "application/vnd.github+json"
       },
       body: JSON.stringify({
-        message: `Add key ${newItem.key}`,
+        message: `add key ${key}`,
         content: updatedContent,
         sha: data.sha
       })
     });
 
     if (updateRes.ok) {
-      res.status(200).json({ message: 'Success add' });
+      res.status(200).json({ message: "Success add!", key });
     } else {
-      const err = await updateRes.json();
+      const err = await updateRes.text();
       console.error("Failed to update GitHub:", err);
-      res.status(500).json({ error: 'Failed to add', detail: err });
+      res.status(500).json({ error: "Failed to add", detail: err });
     }
+
   } catch (err) {
     console.error("Unexpected error:", err);
-    res.status(500).json({ error: 'Error occurred' });
+    res.status(500).json({ error: "Unexpected error", detail: err.toString() });
   }
 };
